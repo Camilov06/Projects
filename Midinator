@@ -1,0 +1,95 @@
+#include <Keypad.h>
+#include <MIDI.h>
+
+MIDI_CREATE_DEFAULT_INSTANCE();
+
+const byte ROWS = 6; //base 6 Filas (Do,Fa#)(Do#,Sol)(Re,Sol#)(Re#,La)(Mi,La#)(Fa,Si)
+const byte COLS = 6; //x 5 columnas (Octava_1a)(Octava_1b)(Octava_2a)(Octava_2b)(Octava_3a)
+byte keys[ROWS][COLS];
+
+byte rowPins[ROWS] = {14, 15, 16, 17, 18, 19}; //A0, A1, A2, A3, A4, A5
+byte colPins[COLS] = {2, 3, 4, 5, 6, 7}; //Un Pin por cada 6 tonos
+
+Keypad kpd = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+
+byte tecla_presionada;
+int nota = 37;// nota inicial
+int ledPin = 11;
+
+String msg = "";
+
+const int transposePin1 = 8; // pins for the switch controlling transposing
+const int transposePin2 = 9;
+int transpose = 0;  // if = 0 no transposing
+int transposeLeft = 0;
+int transposeRight = 0;
+int oldTransposeLeft = 0;
+int oldTransposeRight = 0;
+unsigned long transposeTimer = 0;  // for debouncing
+
+void setup() {
+
+  MIDI.begin(); //iniciamos transmisión Midi.
+  Serial.begin(115200); // enable serial communication
+
+  pinMode(transposePin1, INPUT_PULLUP);  // activate the input pullup resistor on all buttons/switches
+  pinMode(transposePin2, INPUT_PULLUP);  // means you won't need external resistors to read the buttons
+  pinMode(ledPin, OUTPUT);
+   for (int c = 0; c < COLS; c++) {
+    for (int r = 0; r < ROWS; r++) {
+      keys[r][c] = nota;
+      nota++;
+    }
+  }
+}
+
+void loop() {
+
+  analogWrite(ledPin,100);
+
+  // TRANSPOSE SWITCH //
+
+  transposeRight = digitalRead(transposePin1);
+
+  if (oldTransposeRight != transposeRight && transposeRight == 0) { // detect switch change, and only do this once regardless how long it's held down
+    if (millis() - transposeTimer > 1000) { // debounce so you can only do this once a second
+      if (transpose < 48) transpose = transpose + 12; // only change transpose value if it's smaller than 48
+      transposeTimer = millis();// reset debounce timer
+    }
+  }
+  oldTransposeRight = transposeRight;
+
+  transposeLeft = digitalRead(transposePin2);
+
+  if (oldTransposeLeft != transposeLeft && transposeLeft == 0) { // same as above but to decrease the transpose value
+    if (millis() - transposeTimer > 1000) {
+      if (transpose > -60) transpose = transpose - 12; // only change transpose value if it's bigger than -60
+      transposeTimer = millis();
+    }
+  }
+  oldTransposeLeft = transposeLeft;
+
+
+  // KEYPAD //
+
+  if (kpd.getKeys())  // supports up to ten simultaneous key presses
+  {
+    for (int i = 0; i < LIST_MAX; i++) // Se escanea toda la Matriz.
+    {
+      if ( kpd.key[i].stateChanged )   // Si cambia de estado una tecla.
+      {
+        switch (kpd.key[i].kstate) {  // Pulsado or Soltado
+          case PRESSED:
+            msg = " PRESSED.";
+            tecla_presionada = kpd.key[i].kchar;
+            MIDI.sendNoteOn(tecla_presionada + transpose, 80, 1);
+            break;
+          case RELEASED:
+            msg = " RELEASED.";
+            tecla_presionada = kpd.key[i].kchar;
+            MIDI.sendNoteOff(tecla_presionada + transpose, 20, 1);
+        }
+      }
+    }
+  }
+}
